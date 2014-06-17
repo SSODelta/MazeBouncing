@@ -1,0 +1,383 @@
+import flash.events.Event;
+import flash.geom.Point;
+import flash.events.KeyboardEvent;
+
+var TILES:Array = new Array();
+var BALLS:Array = new Array();
+
+var sizeX:Number = 0;
+var sizeY:Number = 0;
+var tileWidth:Number = 0;
+var wallWidth:Number = 2;
+
+var LEFT:Array =  new Array(1,5,6,7,11,12,14,15);
+var UP:Array =    new Array(2,5,8,9,11,12,13,15);
+var RIGHT:Array = new Array(3,6,8,10,11,13,14,15);
+var DOWN:Array =  new Array(4,7,9,10,12,13,14,15);
+
+createStage(48);
+spawnRandomBalls(25, 4);
+
+stage.addEventListener(Event.ENTER_FRAME, loopGame);
+stage.addEventListener(KeyboardEvent.KEY_UP, keyUpListener);
+
+function keyUpListener(e:KeyboardEvent):void{
+	clean();
+	createStage(48);
+	spawnRandomBalls(25, 4);
+}
+
+function loopGame(e:Event):void{
+	for(var i:Number = 0;i<BALLS.length;i++){
+		var o:mcBall = BALLS[i] as mcBall;
+		updateBall(o,i);
+	}
+}
+
+function bounce(a:Point, b:Point):Number{
+	return 2* Math.atan2(a.y-b.y, a.x-b.x);
+}
+
+function segmentDistToPoint(segA:Point, segB:Point, p:Point):Number
+{
+    var p2:Point = new Point(segB.x - segA.x, segB.y - segA.y);
+    var k:Number = p2.x*p2.x + p2.y*p2.y;
+    var u:Number = ((p.x - segA.x) * p2.x + (p.y - segA.y) * p2.y) / k;
+
+    if (u > 1)
+        u = 1;
+    else if (u < 0)
+        u = 0;
+
+    var x:Number = segA.x + u * p2.x;
+    var y:Number = segA.y + u * p2.y;
+
+    var dx:Number = x - p.x;
+    var dy:Number = y - p.y;
+
+    var dist:Number = Math.sqrt(dx*dx + dy*dy);
+
+    return dist;
+}
+
+function dist(a:Point, b:Point){
+	return Math.sqrt(Math.pow(a.x - b.x,2) + Math.pow(a.y - b.y,2)); 
+}
+
+function updateBall(a:mcBall, index:Number):void{
+	var bounced:Boolean = false;
+	
+	var dx:Number = Math.cos(a.angle) * a.speed;
+	var dy:Number = Math.sin(a.angle) * a.speed;
+	
+	if(a.to>0){
+		a.to--;
+		a.x+=dx;
+		a.y+=dy;
+		return;
+	}
+	
+	var nextX:Number = a.x + dx;
+	var nextY:Number = a.y + dy;
+	
+	var tileX:Number = Math.floor(a.x / tileWidth);
+	var tileY:Number = Math.floor(a.y / tileWidth);
+	
+	var i:Number = getIndex(tileX, tileY);
+	
+	var type:Number = (TILES[i] as mcTile).getType();
+	
+	var relX:Number = nextX - tileX*tileWidth;
+	var relY:Number = nextY - tileY*tileWidth;
+	
+	var bw:Number = a.width/2;
+
+	if(
+	   /*Bounce left*/ ( LEFT.indexOf(type)>=0 && relX + dx - bw < wallWidth) ||
+	   /*Bounce right*/(RIGHT.indexOf(type)>=0 && relX + dx + bw > tileWidth - wallWidth))	{
+	   /*Then...*/		a.angle = Math.PI - a.angle; bounced = true;
+		}
+
+	if(
+	   /*Bounce up*/  (  UP.indexOf(type)>=0 && relY + dy - bw < wallWidth) ||
+	   /*Bounce down*/(DOWN.indexOf(type)>=0 && relY + dy + bw > tileWidth - wallWidth))	{
+	   /*Then...*/		a.angle *= -1; bounced = true;
+		}
+	
+	//Check right tile
+	var tileRight:mcTile = 	getRelativeTile(i, 1, 0);
+	var tileUp:mcTile = 	getRelativeTile(i, 0, -1);
+	var tileDown:mcTile = 	getRelativeTile(i, 0, 1);
+	var tileLeft:mcTile = 	getRelativeTile(i, -1, 0);
+	
+	//Case for right
+	var pointR:Point = collidesWithCorner(tileRight, a);
+	if(!bounced && pointR != null){
+		a.angle = 2*Math.PI-a.angle;//bounce(new Point(a.x, a.y), pointR) - a.angle;
+		bounced = true;
+	}
+	
+	//Case for left
+	var pointL:Point = collidesWithCorner(tileLeft, a);
+	if(!bounced && pointL != null){
+		a.angle = 2*Math.PI-a.angle;//bounce(new Point(a.x, a.y), pointL) - a.angle;
+		bounced = true;
+	}
+	
+	//Case for up
+	var pointU:Point = collidesWithCorner(tileUp, a);
+	if(!bounced && pointU != null){
+		a.angle = 2*Math.PI-a.angle;//bounce(new Point(a.x, a.y), pointU) - a.angle;
+		bounced = true;
+	}
+	
+	//Case for down
+	var pointD:Point = collidesWithCorner(tileDown, a);
+	if(!bounced && pointD != null){
+		a.angle = 2*Math.PI-a.angle;//bounce(new Point(a.x, a.y), pointD) - a.angle;
+		bounced = true;
+	}
+	  
+	if(bounced){
+		a.streak++;
+		explode(a.x,a.y,3+Math.random());
+	}else {
+		a.streak = 0;
+	}
+	
+	if(a.streak>4){
+		a.streak = 0;
+		a.to = 4;
+	}
+	
+	//Move ball
+	a.x += Math.cos(a.angle) * a.speed;
+	a.y += Math.sin(a.angle) * a.speed;
+}
+
+function clean():void{
+	cleanArray(BALLS);
+	cleanArray(TILES);
+	BALLS = new Array();
+	TILES = new Array();
+}
+
+function cleanArray(a:Array):void{
+	for(var i:Number = 0;i<a.length;i++){
+		var o:MovieClip = a[i] as MovieClip;
+		o.parent.removeChild(o);
+	}
+	a = new Array();
+}
+
+function collidesWithCorner(o:mcTile, a:mcBall):Point{
+	if(o==null)return null;
+	var type:Number = o.getType();
+	
+	var dx:Number = Math.cos(a.angle) * a.speed;
+	var dy:Number = Math.sin(a.angle) * a.speed;
+	
+	var prevPlayer:Point = new Point(a.x, a.y);
+	var nextPlayer:Point = new Point(a.x + dx, a.y + dy);
+	
+	//If the incoming tile has the upper wall
+	if(testCollision(UP, LEFT, type, prevPlayer, nextPlayer, o.getCorner(0, wallWidth),    a.width/2))return o.getCorner(0, wallWidth);
+
+	//If the incoming tile has the right wall
+	if(testCollision(RIGHT, UP, type, prevPlayer, nextPlayer, o.getCorner(1, wallWidth),   a.width/2))return o.getCorner(1, wallWidth);
+	
+	//If the incoming tile has the down wall
+	if(testCollision(DOWN, RIGHT, type, prevPlayer, nextPlayer, o.getCorner(2, wallWidth), a.width/2))return o.getCorner(2, wallWidth);
+
+	//If the incoming tile has the left wall
+	if(testCollision(LEFT, DOWN, type, prevPlayer, nextPlayer, o.getCorner(3, wallWidth),  a.width/2))return o.getCorner(3, wallWidth);
+
+	return null;
+}
+
+function explode(x:Number, y:Number, power:Number):void{
+	var exp:mcExplosion = new mcExplosion();
+	exp.x = x;
+	exp.y = y;
+	exp.boom(power, Math.floor(Math.pow(Math.log(power),3)), Math.floor(Math.pow(2,power)));
+	stage.addChild(exp);
+}
+
+function testCollision(a:Array, b:Array, n:Number, p:Point, q:Point, c:Point, r:Number):Boolean{
+	return ((a.indexOf(n)>=0 || b.indexOf(n)>=0) && segmentDistToPoint(p, q, c) <= r);
+}
+
+function getIndex(x:Number, y:Number):Number{
+	return y*sizeX + x;
+}
+
+function spawnRandomBalls(balls:Number, speed:Number):void{
+	for(var i:Number = 0; i<balls; i++)
+		spawnRandomBall(speed);
+}
+
+function spawnRandomBall(speed:Number):void{
+	spawnBall(Math.random()*stage.stageWidth,
+			  Math.random()*stage.stageHeight,
+			  Math.random()*Math.PI*2,
+			  speed);
+}
+
+function spawnBall(x:Number, y:Number, angle:Number, speed:Number){
+	var ball:mcBall = new mcBall();
+	ball.x = x;
+	ball.y = y;
+	ball.width = 4;
+	ball.height = 4;
+	ball.angle = angle;
+	ball.speed = speed;
+	stage.addChild(ball);
+	BALLS.push(ball);
+}
+
+function createStage(tw:Number):void{
+	sizeX = Math.floor(stage.stageWidth / tw);
+	sizeY = Math.floor(stage.stageHeight / tw);
+	tileWidth = tw;
+	
+	var tiles:Number = sizeX * sizeY;
+	
+	for(var i:Number = 0; i < tiles; i++){
+		var tile:mcTile = new mcTile();
+		
+		var x:Number = (i % sizeX);
+		var y:Number = Math.floor(i / sizeX);
+		
+		tile.x = x * tileWidth;
+		tile.y = y * tileWidth;
+		tile.width = tileWidth;
+		tile.height = tileWidth;
+		TILES.push(tile);
+		stage.addChild(tile);
+		tile.setRandom();
+		
+		var maxX:Number = sizeX-1;
+		var maxY:Number = sizeY-1;
+		
+		if(x == 0)		tile.setType(1);
+		if(y == 0)		tile.setType(2);
+		if(x == maxX)	tile.setType(3);
+		if(y == maxY)	tile.setType(4);
+		
+		if(x == 0 &&       	y == 0)		tile.setType(5);
+		if(x == 0 &&       	y == maxY)	tile.setType(7);
+		if(x == maxX && 	y == 0)		tile.setType(8);
+		if(x == maxX && 	y == maxY)	tile.setType(10);
+	}
+	
+	cleanTiles();
+}
+
+function getRelativeTile(i:Number, dx:Number, dy:Number):mcTile{
+	var x:Number = (TILES[i] as mcTile).x / tileWidth;
+	var y:Number = (TILES[i] as mcTile).y / tileWidth;
+	var t:Number = getIndex(x+dx, y+dy);
+	if(t<0 || t>=TILES.length) return null;
+	return TILES[t] as mcTile;
+}
+
+function cleanTiles():void{
+	for(var i:Number = 0; i<TILES.length; i++){
+		var type:Number = (TILES[i] as mcTile).getType();
+		
+		if(LEFT.indexOf(type)>=0){
+			makeRightTile(getRelativeTile(i,-1,0));
+		}
+		
+		if(RIGHT.indexOf(type)>=0){
+			makeLeftTile(getRelativeTile(i,1,0));
+		}
+		
+		if(UP.indexOf(type)>=0){
+			makeDownTile(getRelativeTile(i,0,-1));
+		}
+		
+		if(DOWN.indexOf(type)>=0){
+			makeUpTile(getRelativeTile(i,0,1));
+		}
+	}
+}
+function makeDownTile(o:mcTile):void{
+	if(o==null)return;
+	o.setType(addDownWall(o.getType()));
+}
+
+function makeUpTile(o:mcTile):void{
+	if(o==null)return;
+	o.setType(addUpWall(o.getType()));
+}
+
+function makeLeftTile(o:mcTile):void{
+	if(o==null)return;
+	o.setType(addLeftWall(o.getType()));
+}
+
+function makeRightTile(o:mcTile):void{
+	if(o==null)return;
+	o.setType(addRightWall(o.getType()));
+}
+
+function addDownWall(i:Number):Number{
+	if(DOWN.indexOf(i)>=0)	return i;
+	switch(i){
+		case 0:		return 4;
+		case 1:		return 7;
+		case 2:		return 9;
+		case 3:		return 10;
+		case 5:		return 12;
+		case 6:		return 14;
+		case 8:		return 13;
+		case 11:	return 15;
+	}
+	return -1;
+}
+
+function addUpWall(i:Number):Number{
+	if(UP.indexOf(i)>=0)	return i;
+	switch(i){
+		case 0:		return 2;
+		case 1:		return 5;
+		case 3:		return 8;
+		case 4:		return 9;
+		case 6:		return 11;
+		case 7:		return 12;
+		case 10:	return 13;
+		case 14:	return 15;
+	}
+	return -1;
+}
+
+function addRightWall(i:Number):Number{
+	if(RIGHT.indexOf(i)>=0)	return i;
+	switch(i){
+		case 0:		return 3;
+		case 1:		return 6;
+		case 2:		return 8;
+		case 4:		return 10;
+		case 5:		return 11;
+		case 7:		return 14;
+		case 9:		return 13;
+		case 12:	return 15;
+	}
+	return -1;
+}
+
+function addLeftWall(i:Number):Number{
+	if(LEFT.indexOf(i)>=0)	return i;
+	switch(i){
+		case 0:		return 1;
+		case 2:		return 5;
+		case 3:		return 6;
+		case 4:		return 7;
+		case 8:		return 11;
+		case 9:		return 12;
+		case 10:	return 14;
+		case 13:	return 15;
+	}
+	return -1;
+}
